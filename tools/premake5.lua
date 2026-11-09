@@ -1,8 +1,12 @@
-local ROOT = path.getabsolute(".")
+-- tools/premake5.lua - Tessera
+-- Run from the repository root:  premake5 --file=tools/premake5.lua xcode4
+
+-- Repository root = the parent of the folder this script lives in
+local ROOT = path.getabsolute(path.join(_SCRIPT_DIR, ".."))
 
 workspace "Tessera"
     configurations { "Debug", "Release" }
-    location "build"
+    location (ROOT .. "/build")
     startproject "Tessera"
 
     filter "system:macosx"
@@ -14,20 +18,18 @@ workspace "Tessera"
 project "Tessera"
     kind "ConsoleApp"
     language "C++"
-    cppdialect "C++17"                      -- metal-cpp requires C++17
-    targetdir (ROOT .. "/bin/%{cfg.system}-%{cfg.buildcfg}")
-    objdir    (ROOT .. "/bin-int/%{cfg.system}-%{cfg.buildcfg}")
+    cppdialect "C++20"                
+    location  (ROOT .. "/build")
+    targetdir (ROOT .. "/Bin/%{cfg.buildcfg}")
+    objdir    (ROOT .. "/Bin/Intermediates/%{cfg.buildcfg}")
 
-    ---------------------------------------------------------------------------
-    -- Shared by every platform
-    ---------------------------------------------------------------------------
     files {
-        "src/main.cpp",
-        "src/common/**.h",
-        "src/common/**.hpp",
-        "src/common/**.cpp",
+        ROOT .. "/src/main.cpp",
+        ROOT .. "/src/common/**.h",
+        ROOT .. "/src/common/**.hpp",
+        ROOT .. "/src/common/**.cpp",
     }
-    includedirs { "src", "src/common" }
+    includedirs { ROOT .. "/src", ROOT .. "/src/common" }
 
     filter "configurations:Debug"
         defines { "TESSERA_DEBUG" }
@@ -37,9 +39,8 @@ project "Tessera"
     filter "configurations:Release"
         defines { "NDEBUG" }                -- disables assert(): keep side effects out of asserts
         optimize "Speed"
-        symbols "On"                        -- keep symbols so profilers can show function names
+        symbols "On"
 
-    -- Warn when a local variable shadows a member (the bug that bit the Engine and KernelLibrary)
     filter "toolset:clang or gcc"
         buildoptions { "-Wshadow" }
     filter "toolset:msc*"
@@ -48,26 +49,24 @@ project "Tessera"
     filter "system:macosx"
         defines { "TESSERA_BACKEND_METAL" }
         files {
-            "src/backends/metal/**.hpp",
-            "src/backends/metal/**.cpp",
-            "src/backends/metal/**.metal",
-            -- The simulator still uses Metal types directly. Move it to the shared
-            -- list above once it talks to a backend interface instead.
-            "src/sim/**.hpp",
-            "src/sim/**.cpp",
+            ROOT .. "/src/backends/metal/**.hpp",
+            ROOT .. "/src/backends/metal/**.cpp",
+            ROOT .. "/src/backends/metal/**.metal",
+            ROOT .. "/src/sim/**.hpp",      -- still Metal-specific until abstracted
+            ROOT .. "/src/sim/**.cpp",
         }
-        includedirs { "external/metal-cpp" }
+
+        removefiles { ROOT .. "/src/backends/metal/metal-cpp/**" }
+
+        includedirs { ROOT .. "/src/backends/metal/metal-cpp" }
         links { "Metal.framework", "Foundation.framework", "QuartzCore.framework" }
 
-        -- Used if Xcode compiles the .metal file itself, so both paths build the same library
         xcodebuildsettings {
             ["MTL_HEADER_SEARCH_PATHS"] = ROOT .. "/src/common",
             ["MTL_FAST_MATH"]           = "NO",
         }
 
-        -- Explicit shader build, identical for Xcode and make:
-        -- kernel.metal -> kernel.air -> default.metallib next to the executable,
-        -- where newDefaultLibrary() looks for it. Fast math off to match CUDA.
+        -- kernel.metal -> kernel.air -> default.metallib next to the executable
         postbuildcommands {
             '{MKDIR} "%{cfg.objdir}"',
             'xcrun -sdk macosx metal -c -fno-fast-math'
@@ -81,9 +80,9 @@ project "Tessera"
     filter "system:windows or linux"
         defines { "TESSERA_BACKEND_CUDA" }
         files {
-            "src/backends/cuda/**.hpp",
-            "src/backends/cuda/**.cpp",
-            "src/backends/cuda/**.cu",
+            ROOT .. "/src/backends/cuda/**.hpp",
+            ROOT .. "/src/backends/cuda/**.cpp",
+            ROOT .. "/src/backends/cuda/**.cu",
         }
- 
+
     filter {}
