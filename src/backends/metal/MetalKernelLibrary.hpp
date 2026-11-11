@@ -1,7 +1,7 @@
 #ifndef MetalKernelLibrary_hpp
 #define MetalKernelLibrary_hpp
 
-#include <Metal/Metal.hpp>
+#include "Metal/Metal.hpp"
 #include <stdio.h>
 #include <memory>
 #include <string>

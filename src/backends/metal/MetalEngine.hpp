@@ -2,7 +2,7 @@
 #define MetalEngine_hpp
 
 #include <stdio.h>
-#include <Metal/Metal.hpp>
+#include "Metal/Metal.hpp"
 #include "common/Engine.hpp"
 
 class MetalKernelLibrary;

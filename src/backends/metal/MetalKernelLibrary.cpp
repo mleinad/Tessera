@@ -2,7 +2,7 @@
 #include "MetalEngine.hpp"
 #include "common/logger.hpp"
 
-static constexpr auto kKernalPath = "/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/Tessera/Metal/lib/default.metallib";
+static constexpr auto kKernalPath = "default.metallib";
 
 MetalKernelLibrary::MetalKernelLibrary(MTL::Device* device) : m_device(device) {
     NS::Error* err = nullptr;
