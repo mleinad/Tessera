@@ -1,12 +1,13 @@
 #include <iostream>
 #include <filesystem>
-#include <Metal/Metal.hpp>
 
-#include "Engine.hpp"
-#include "Buffer.hpp"
-#include "KernelLibrary.hpp"
-#include "Sim/Simulator.hpp"
-#include "Common/logger.hpp"
+#include "common/Engine.hpp"
+#include "common/logger.hpp"
+#include "sim/Simulator.hpp"
+
+#if defined(TESSERA_BACKEND_METAL)
+#include <Foundation/Foundation.hpp>
+#endif
 
 void RunSineTest() {
     Simulator sim(256, 0.5f);
@@ -40,10 +41,14 @@ void RunVisualization() {
 }
 
 int main(int argc, const char* argv[]) {
+#if defined(TESSERA_BACKEND_METAL)
     NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
+#endif
     Engine::GetInstance()->Initialize();
 
     RunVisualization();
-    
+
+#if defined(TESSERA_BACKEND_METAL)
     pool->release();
+#endif
 }

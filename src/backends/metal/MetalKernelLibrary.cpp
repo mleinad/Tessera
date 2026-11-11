@@ -1,10 +1,10 @@
-#include "KernelLibrary.hpp"
-#include "Engine.hpp"
-#include "../Common/logger.hpp"
+#include "MetalKernelLibrary.hpp"
+#include "MetalEngine.hpp"
+#include "common/logger.hpp"
 
 static constexpr auto kKernalPath = "/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/Tessera/Metal/lib/default.metallib";
 
-KernelLibrary::KernelLibrary(MTL::Device* device) : m_device(device) {
+MetalKernelLibrary::MetalKernelLibrary(MTL::Device* device) : m_device(device) {
     NS::Error* err = nullptr;
     auto*      url = NS::URL::fileURLWithPath(NS::String::string(kKernalPath, NS::UTF8StringEncoding));
     m_library      = m_device->newLibrary(url, &err);
@@ -18,12 +18,12 @@ KernelLibrary::KernelLibrary(MTL::Device* device) : m_device(device) {
     }
 }
 
-KernelLibrary::~KernelLibrary() {
+MetalKernelLibrary::~MetalKernelLibrary() {
 }
 
-MTL::ComputePipelineState* KernelLibrary::Get(const std::string& name) {
+MetalKernel* MetalKernelLibrary::Get(const std::string& name) {
     if (auto it = m_cache.find(name); it != m_cache.end()) {
-        return it->second;
+        return it->second.get();
     }
 
     MTL::Function* fn = m_library->newFunction(NS::String::string(name.c_str(), NS::UTF8StringEncoding));
@@ -36,6 +36,6 @@ MTL::ComputePipelineState* KernelLibrary::Get(const std::string& name) {
         assert(false);
     }
 
-    m_cache[name] = pso;
-    return pso;
+    m_cache[name] = std::make_unique<MetalKernel>(pso);
+    return m_cache[name].get();
 }

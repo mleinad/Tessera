@@ -3,12 +3,11 @@
 #include <vector>
 #include <algorithm>
 #include <cassert>
+#include <chrono>
 
 #include "Simulator.hpp"
-#include "../Common/Benchmark.hpp"
-#include "../Metal/Engine.hpp"
-#include "../Metal/KernelLibrary.hpp"
-#include "../Metal/Buffer.hpp"
+#include "common/Benchmark.hpp"
+#include "common/Engine.hpp"
 
 // sin(pi * i / (n+1)) for i = 0..n+1; zero exactly on the ghost layer
 static std::vector<double> SineTable(u32 n) {
@@ -27,9 +26,9 @@ Simulator::Simulator(u32 n, float courant) {
     m_params.sz                             = (u64)(n + 2) * (n + 2);
     m_params.C                              = courant * courant;
     size_t bytes                            = (size_t)(n + 2) * m_params.sz * sizeof(float);
-    m_curr                                  = std::make_unique<Buffer>(bytes);
-    m_prev                                  = std::make_unique<Buffer>(bytes);
-    m_pso                                   = Engine::GetInstance()->Kernels().Get("wave_step");
+    m_curr                                  = Engine::GetInstance()->CreateBuffer(bytes);
+    m_prev                                  = Engine::GetInstance()->CreateBuffer(bytes);
+    m_kernel                                = Engine::GetInstance()->GetKernel("wave_step");
 }
 
 void Simulator::InitStandingWave() {
@@ -117,12 +116,12 @@ double Simulator::MaxErrorVsExact() {
 double Simulator::EncodeAndSubmit(u32 steps) {
     Engine* engine = Engine::GetInstance();
     engine->Begin();
-    engine->Encoder()->setBytes(&m_params, sizeof(m_params), BIND_PARAMS);
+    engine->SetBytes(&m_params, sizeof(m_params), BIND_PARAMS);
     // iterate sim steps
     for (u32 s = 0; s < steps; ++s) {
-        engine->Encoder()->setBuffer(m_curr->Get(), 0, BIND_U_CURR);
-        engine->Encoder()->setBuffer(m_prev->Get(), 0, BIND_U_PREV);
-        engine->Dispatch3D(m_pso, MTL::Size(m_params.nx, m_params.ny, m_params.nz));
+        engine->SetBuffer(m_curr.get(), BIND_U_CURR);
+        engine->SetBuffer(m_prev.get(), BIND_U_PREV);
+        engine->Dispatch3D(m_kernel, m_params.nx, m_params.ny, m_params.nz);
         std::swap(m_curr, m_prev);
     }
     m_steps_done += steps;

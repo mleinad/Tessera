@@ -1,7 +1,7 @@
 // metal/kernels.metal
 #include <metal_stdlib>
 using namespace metal;
-#include "../Common/WaveCommon.h"
+#include "../../common/WaveCommon.h"
 
 kernel void wave_step(const device float* u      [[buffer(BIND_U_CURR)]],
                       device float*       u_prev [[buffer(BIND_U_PREV)]],

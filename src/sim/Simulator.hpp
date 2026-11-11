@@ -1,7 +1,8 @@
 #ifndef Simulator_hpp
 #define Simulator_hpp
-#include "../Common/WaveCommon.h"
-#include <Metal/Metal.hpp>
+#include "common/WaveCommon.h"
+#include "common/Engine.hpp"
+#include <memory>
 #include <stdio.h>
 
 struct RunTiming {
@@ -10,6 +11,7 @@ struct RunTiming {
 };
 
 class Buffer;
+class Kernel;
 class Simulator {
 public:
     Simulator(u32 n, float courant);
@@ -33,7 +35,7 @@ private:
     WaveParams                 m_params{};
     std::unique_ptr<Buffer>    m_curr;
     std::unique_ptr<Buffer>    m_prev;
-    MTL::ComputePipelineState* m_pso;
+    Kernel*                    m_kernel{nullptr};
     u64                        m_steps_done{0};
     double                     m_theta{0}; // phase advance per step (see validation)
 };
