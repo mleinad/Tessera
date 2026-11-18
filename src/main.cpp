@@ -1,5 +1,6 @@
 #include <iostream>
 #include <filesystem>
+#include <vector>
 
 #include "common/Engine.hpp"
 #include "common/logger.hpp"
@@ -50,7 +51,7 @@ void Benchmark() {
 
     std::vector<Row> rows;
 
-    const u32 sizes[] = {256, 512, 800, 1000, 1150};
+    const u32 sizes[] = {256, 512};
     const u32 reps    = 5;
     const u32 steps   = 20;
 

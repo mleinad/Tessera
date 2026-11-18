@@ -84,6 +84,7 @@ project "Tessera"
     -- Common nvcc command. sm_86 = RTX 30-series (Ampere, incl. the 3070 Ti Laptop).
     local NVCC = (CUDA and ('"' .. CUDA .. '/bin/nvcc"') or "nvcc")
               .. ' -std=c++20 -arch=sm_86'
+              .. ' -ccbin g++-13'                  -- nvcc 12.4 supports host compilers up to g++ 13
               .. ' -I"' .. ROOT .. '/src" -I"' .. ROOT .. '/src/common"'
               .. ' -DTESSERA_BACKEND_CUDA'
     local CU_OUT = '"%{cfg.objdir}/%{file.basename}.cu.o"'

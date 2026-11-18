@@ -2,13 +2,21 @@
 #include "common/logger.hpp"
 #include "common/WaveCommon.h"
 
+#include "CudaHelper.hpp"
+#include "CudaBuffer.hpp"
+#include "CudaKernelLibrary.hpp"
+
+#include <cassert>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <cuda_runtime.h>
 
-CudaEngine* CudaEngine::m_instance = nullptr;
+CudaEngine *CudaEngine::m_instance = nullptr;
 
 // The shared code asks for Engine::GetInstance(); the CUDA build answers with CudaEngine
-Engine* Engine::GetInstance() {
+Engine *Engine::GetInstance()
+{
     return CudaEngine::GetInstance();
 }
 
@@ -20,33 +28,44 @@ CudaEngine::~CudaEngine()
 {
 }
 
-bool CudaEngine::Initialize() {
-    if (m_initialized) {
+bool CudaEngine::Initialize()
+{
+    if (m_initialized)
+    {
         return false;
     }
 
-    cudaError_t err = cudaSetDevice(m_device); // also creates the CUDA context
-    if (err != cudaSuccess) {
-        log("CUDA init failed: {}", cudaGetErrorString(err));
-        return false;
-    }
-    
+    CUDA_CHECK(cudaSetDevice(m_device)); // also creates the CUDA context
+
     cudaDeviceProp prop{};
     cudaGetDeviceProperties(&prop, m_device);
 
-    size_t free_bytes = 0, total_bytes = 0;
-    cudaMemGetInfo(&free_bytes, &total_bytes);
+    size_t free_bytes = 0;
+    size_t total_bytes = 0;
+
+    CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
+
+    CUDA_CHECK(cudaStreamCreate(&m_stream));
+    CUDA_CHECK(cudaEventCreate(&m_start));
+    CUDA_CHECK(cudaEventCreate(&m_stop));
+    m_kernels     = std::make_unique<CudaKernelLibrary>();
     m_initialized = true;
+
+    if (const char* mem = std::getenv("TESSERA_CUDA_MEMORY"); mem && std::strcmp(mem, "device") == 0)
+    {
+        m_buffer_mode = CudaBuffer::Mode::Device;
+    }
 
     // Peak DRAM bandwidth: the stencil is memory-bound, so this is the roofline to compare GB/s against
     int mem_clock_khz = 0, bus_width_bits = 0;
-    cudaDeviceGetAttribute(&mem_clock_khz, cudaDevAttrMemoryClockRate, m_device);
-    cudaDeviceGetAttribute(&bus_width_bits, cudaDevAttrGlobalMemoryBusWidth, m_device);
+    CUDA_CHECK(cudaDeviceGetAttribute(&mem_clock_khz, cudaDevAttrMemoryClockRate, m_device));
+    CUDA_CHECK(cudaDeviceGetAttribute(&bus_width_bits, cudaDevAttrGlobalMemoryBusWidth, m_device));
     const double peak_gbs = 2.0 * mem_clock_khz * 1e3 * (bus_width_bits / 8.0) / 1e9; // x2: double data rate
 
-    int driver = 0, runtime = 0;
-    cudaDriverGetVersion(&driver);
-    cudaRuntimeGetVersion(&runtime);
+    int driver = 0;
+    int runtime = 0;
+    CUDA_CHECK(cudaDriverGetVersion(&driver));
+    CUDA_CHECK(cudaRuntimeGetVersion(&runtime));
 
     // Largest cubic grid whose two float32 fields fit in free VRAM: 2 * (n+2)^3 * 4 bytes
     const u64 n_fit = (u64)std::cbrt(free_bytes / 8.0) - 2;
@@ -65,45 +84,77 @@ bool CudaEngine::Initialize() {
                                         ? "supported (managed memory can exceed VRAM)"
                                         : "NOT supported (grids larger than VRAM will fail)");
     log("Largest in-VRAM grid: {}^3 interior cells (2 x float32 fields)", n_fit);
-    if (prop.major * 10 + prop.minor != 86) {
+    log("Buffer memory       : {}", m_buffer_mode == CudaBuffer::Mode::Device
+                                        ? "device (VRAM only, cudaMalloc; capped by free VRAM)"
+                                        : "managed (cudaMallocManaged; can oversubscribe)");
+    if (prop.major * 10 + prop.minor != 86)
+    {
         log("WARNING: kernels are built for sm_86 but this device is sm_{}{}", prop.major, prop.minor);
     }
 
     return true;
 }
-CudaEngine* CudaEngine::GetInstance(){
- if (!m_instance) {
+CudaEngine *CudaEngine::GetInstance()
+{
+    if (!m_instance)
+    {
         m_instance = new CudaEngine();
     }
-return m_instance;
+    return m_instance;
 }
 
-std::unique_ptr<Buffer> CudaEngine::CreateBuffer(size_t bytes) {
-    return nullptr;
+std::unique_ptr<Buffer> CudaEngine::CreateBuffer(size_t bytes)
+{
+    return std::make_unique<CudaBuffer>(bytes, m_buffer_mode);
 }
-Kernel* CudaEngine::GetKernel(const std::string &name) {
-    return nullptr;
+Kernel *CudaEngine::GetKernel(const std::string &name)
+{
+    return m_kernels->Get(name);
 }
 
-bool CudaEngine::Begin() {
+bool CudaEngine::Begin()
+{
+    CUDA_CHECK(cudaEventRecord(m_start, m_stream));
     return true;
 }
-void CudaEngine::SetBuffer(Buffer *buffer, uint32_t index){
-
+void CudaEngine::SetBuffer(Buffer *buffer, uint32_t index)
+{
+    assert(index < kMaxBinds);
+    m_buffer_slots[index] = static_cast<CudaBuffer *>(buffer)->DevicePtr(); // Device mode: uploads if the host copy is newer
+    m_args[index]         = &m_buffer_slots[index];
 }
-void CudaEngine::SetBytes(const void *data, size_t bytes, uint32_t index){
-
-}
-
-void CudaEngine::Dispatch3D(Kernel *kernel, size_t x, size_t y, size_t z) {
-
-}
-
-double CudaEngine::Submit(){
-    return 0.0f;
+void CudaEngine::SetBytes(const void *data, size_t bytes, uint32_t index)
+{
+    assert(index < kMaxBinds && bytes <= kMaxBindBytes);
+    std::memcpy(m_byte_slots[index], data, bytes);
+    m_args[index] = m_byte_slots[index];
 }
 
-bool CudaEngine::CanFit(size_t bytes_per_buffer, size_t total_bytes) const {
-    
-    return true;
+void CudaEngine::Dispatch3D(Kernel *kernel, size_t x, size_t y, size_t z)
+{
+    // 32 wide in x (one warp, contiguous in memory) like Metal's threadExecutionWidth; 32 x 8 = 256 threads
+    const dim3 block(32, 8, 1);
+    const dim3 grid((unsigned)((x + block.x - 1) / block.x),
+                    (unsigned)((y + block.y - 1) / block.y),
+                    (unsigned)z);
+    CUDA_CHECK(cudaLaunchKernel(static_cast<CudaKernel *>(kernel)->Get(), grid, block, m_args, 0, m_stream));
+}
+
+double CudaEngine::Submit()
+{
+    CUDA_CHECK(cudaEventRecord(m_stop, m_stream));
+    CUDA_CHECK(cudaEventSynchronize(m_stop)); // host may touch managed buffers after this
+    CUDA_CHECK(cudaGetLastError());           // errors raised while the kernels ran
+
+    float ms = 0.0f;
+    CUDA_CHECK(cudaEventElapsedTime(&ms, m_start, m_stop));
+    return ms / 1e3;
+}
+
+bool CudaEngine::CanFit(size_t bytes_per_buffer, size_t total_bytes) const
+{
+    // "Fits" = fits in free VRAM without oversubscription (managed memory can still go beyond)
+    size_t free_bytes = 0, vram_bytes = 0;
+    CUDA_CHECK(cudaMemGetInfo(&free_bytes, &vram_bytes));
+    return bytes_per_buffer <= free_bytes && total_bytes <= free_bytes;
 }
