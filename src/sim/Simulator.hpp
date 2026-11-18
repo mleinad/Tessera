@@ -17,6 +17,8 @@ public:
     Simulator(u32 n, float courant);
 
     void InitStandingWave();
+    
+    void InitPulse(float sigma_cells, double cx, double cy, double cz);
     void InitPulse(float sigma_cells);
 
     RunTiming Run(u32 steps, u32 batch = 50); // returns GPU seconds for the batch
@@ -28,16 +30,21 @@ public:
         return (u64)m_params.nx * m_params.ny * m_params.nz;
     }
 
+    bool LoadMask(const char* path);
+    
     bool DumpSliceZ(u32 z, const char* path);
     bool DumpVolume(const char* path, u32 stride);
-    
 private:
-    WaveParams                 m_params{};
-    std::unique_ptr<Buffer>    m_curr;
-    std::unique_ptr<Buffer>    m_prev;
-    Kernel*                    m_kernel{nullptr};
-    u64                        m_steps_done{0};
-    double                     m_theta{0}; // phase advance per step (see validation)
+    WaveParams              m_params{};
+    std::unique_ptr<Buffer> m_curr;
+    std::unique_ptr<Buffer> m_prev;
+    Kernel*                 m_kernel{nullptr};
+    u64                     m_steps_done{0};
+    double                  m_theta{0}; // phase advance per step
+
+    std::unique_ptr<Buffer> m_mask;
+    Kernel*                 m_kernel_obstacles{nullptr};
+    bool                    m_has_obstacles = false;
 };
 
 #endif /* Simulator_hpp */

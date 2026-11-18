@@ -4,6 +4,7 @@
 #include "common/logger.hpp"
 #include "common/WaveCommon.h"
 
+#include <cassert>
 #include <cmath>
 
 MetalEngine* MetalEngine::m_instance = nullptr;
@@ -31,7 +32,12 @@ bool MetalEngine::Initialize() {
         return false;
     }
     m_device = MTL::CreateSystemDefaultDevice();
+
     assert(m_device);
+    if (!m_device) {
+        log("Metal: no device available");
+        return false;
+    }
     m_command_queue = m_device->newCommandQueue();
     m_kernels       = std::make_unique<MetalKernelLibrary>(m_device);
     m_initialized   = true;
@@ -46,9 +52,7 @@ bool MetalEngine::Initialize() {
 
     log("==== Tessera | Metal backend ====");
     log("Device              : {}", m_device->name()->utf8String());
-    log("Memory model        : {}", m_device->hasUnifiedMemory()
-                                        ? "unified (CPU and GPU share one memory pool, no transfers)"
-                                        : "discrete (separate VRAM)");
+    log("Memory model        : {}", m_device->hasUnifiedMemory() ? "unified (CPU and GPU share one memory pool, no transfers)" : "discrete (separate VRAM)");
     log("Physical RAM        : {:.2f} GB", ram / GB);
     log("GPU working set     : {:.2f} GB (recommended max before paging)", working_set / GB);
     log("Max buffer length   : {:.2f} GB (per field)", m_device->maxBufferLength() / GB);
@@ -92,9 +96,11 @@ double MetalEngine::Submit() {
     // extract out in seperate metrics layer
     double gpu = m_command_buffer->GPUEndTime() - m_command_buffer->GPUStartTime();
     m_pool->release(); // frees m_cmd and m_encoder
-    m_command_buffer = nullptr;
-    m_command_buffer = nullptr;
-    m_pool           = nullptr;
+
+    m_command_buffer          = nullptr;
+    m_compute_command_encoder = nullptr;
+    m_pool                    = nullptr;
+
     return gpu;
 }
 
@@ -111,6 +117,5 @@ void MetalEngine::Dispatch3D(MTL::ComputePipelineState* pso, MTL::Size grid) {
 }
 
 bool MetalEngine::CanFit(size_t bytes_per_buffer, size_t total_bytes) const {
-    return bytes_per_buffer <= m_device->maxBufferLength()
-        && total_bytes      <= m_device->recommendedMaxWorkingSetSize();
+    return bytes_per_buffer <= m_device->maxBufferLength() && total_bytes <= m_device->recommendedMaxWorkingSetSize();
 }

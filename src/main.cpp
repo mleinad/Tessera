@@ -41,6 +41,30 @@ void RunVisualization() {
     }
 }
 
+void RunMaskedSimulation(const char* mask_path) {
+    std::filesystem::create_directories("frames");
+
+    const u32 n = 256; // must match the n the mask was voxelized for
+    Simulator sim(n, 0.5f);
+
+    // Load the mask before initializing, so the pulse skips solid cells
+    if (!sim.LoadMask(mask_path)) {
+        log("could not load {}\n", mask_path);
+        return;
+    }
+
+    // Pulse on the centre line, a fifth of the way along x: beside a model centred in the box
+    const double mid = (n + 1) * 0.5;
+    sim.InitPulse(3.0f, n / 5.0, mid, mid);
+
+    char path[64];
+    for (u32 frame = 0; frame < 240; ++frame) {
+        std::snprintf(path, sizeof(path), "frames/vol_%04u.bin", frame);
+        sim.DumpVolume(path, 2); // whole volume, every 2nd cell per axis
+        sim.Run(4);              // steps per frame: more = faster motion
+    }
+}
+
 void Benchmark() {
     struct Row {
         u32    n;
@@ -88,7 +112,7 @@ int main(int argc, const char* argv[]) {
 #endif
     Engine::GetInstance()->Initialize();
 
-    Benchmark();
+    RunMaskedSimulation("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
 
 #if defined(TESSERA_BACKEND_METAL)
     pool->release();

@@ -15,8 +15,9 @@ Usage:
     python3 viz3d.py                                   # frames3d/ -> wave3d.mp4 (or .gif)
     python3 viz3d.py /path/to/frames3d out.mp4 --mode volume --clip 0.2
     python3 viz3d.py frames3d out.gif --mode contour --level 0.05
+    python3 viz3d.py frames3d out.mp4 --mask bunny_256.nrrd       # show the obstacle model
 
-Install: pip3 install numpy pyvista imageio imageio-ffmpeg
+Install: pip3 install numpy pyvista imageio imageio-ffmpeg pynrrd   (pynrrd only for --mask)
 """
 import argparse
 import glob
@@ -41,6 +42,19 @@ def load_volume(path):
     grid = pv.ImageData(dimensions=(w, h, d), spacing=(stride, stride, stride))
     grid.point_data["p"] = data   # file order is x fastest, which is VTK's point order
     return step, grid
+
+
+def load_mask_surface(path):
+    """Surface of the solid cells in a Tessera mask (.nrrd), in simulation cell coordinates."""
+    import nrrd   # only needed for --mask
+    data, _ = nrrd.read(path, index_order="C")        # indexed [z, y, x], like the simulation
+    d, h, w = data.shape
+    grid = pv.ImageData(dimensions=(w, h, d), spacing=(1, 1, 1))   # cell i sits at coordinate i,
+    grid.point_data["solid"] = data.astype(np.float32).ravel()     # same as the volume dumps
+    surface = grid.contour(isosurfaces=[0.5], scalars="solid")
+    if surface.n_points:
+        surface = surface.smooth_taubin(n_iter=30)    # soften the voxel staircase
+    return surface
 
 
 def draw(plotter, grid, mode, vmax, level):
@@ -78,6 +92,7 @@ def main():
     ap.add_argument("--level", type=float, default=0.05,
                     help="isosurface level as a fraction of the first frame's peak (contour)")
     ap.add_argument("--size", type=int, default=800, help="output resolution in pixels (square)")
+    ap.add_argument("--mask", default=None, help="obstacle mask (.nrrd) to draw as a grey model")
     args = ap.parse_args()
 
     paths = sorted(glob.glob(os.path.join(args.frames_dir, "vol_*.bin")))
@@ -100,6 +115,12 @@ def main():
             sys.exit(f"cannot write {out} ({e}). Install imageio-ffmpeg, or use an output ending in .gif")
 
     plotter.add_mesh(first.outline(), color="#777777")      # the simulation box, drawn once
+    if args.mask:                                           # the obstacle model, drawn once
+        model = load_mask_surface(args.mask)
+        if model.n_points:
+            plotter.add_mesh(model, color="#bbbbbb", smooth_shading=True, specular=0.2)
+        else:
+            print(f"warning: {args.mask} has no solid cells", file=sys.stderr)
     actors = []
     for i, path in enumerate(paths):
         step, grid = load_volume(path)

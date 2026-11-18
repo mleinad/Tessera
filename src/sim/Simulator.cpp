@@ -9,6 +9,8 @@
 #include "common/Benchmark.hpp"
 #include "common/Engine.hpp"
 
+#include "common/NRRDLoader.hpp"
+
 // sin(pi * i / (n+1)) for i = 0..n+1; zero exactly on the ghost layer
 static std::vector<double> SineTable(u32 n) {
     std::vector<double> t(n + 2);
@@ -29,6 +31,11 @@ Simulator::Simulator(u32 n, float courant) {
     m_curr                                  = Engine::GetInstance()->CreateBuffer(bytes);
     m_prev                                  = Engine::GetInstance()->CreateBuffer(bytes);
     m_kernel                                = Engine::GetInstance()->GetKernel("wave_step");
+
+    const size_t cells = (size_t)(n + 2) * (n + 2) * (n + 2);
+    m_mask             = Engine::GetInstance()->CreateBuffer(cells);
+    std::memset(m_mask->As<u8>(), 0, cells); // all air
+    m_kernel_obstacles = Engine::GetInstance()->GetKernel("wave_step_obstacles");
 }
 
 void Simulator::InitStandingWave() {
@@ -63,33 +70,45 @@ void Simulator::InitStandingWave() {
     }
 }
 
-
-void Simulator::InitPulse(float sigma_cells) {
+void Simulator::InitPulse(float sigma_cells, double cx, double cy, double cz) {
     float* cur  = m_curr->As<float>();
     float* prev = m_prev->As<float>();
-    std::memset(cur,  0, m_curr->Size());
+    
+    std::memset(cur, 0, m_curr->Size()); // ghost layer must be exactly zero
     std::memset(prev, 0, m_prev->Size());
 
-    const double cx = (m_params.nx + 1) * 0.5, cy = (m_params.ny + 1) * 0.5, cz = (m_params.nz + 1) * 0.5;
-    const double k  = 1.0 / (2.0 * sigma_cells * sigma_cells);
-    for (u32 z = 1; z <= m_params.nz; ++z)
-        for (u32 y = 1; y <= m_params.ny; ++y)
+    // Solid cells stay at zero: a pulse starting inside an object would be wiped on the first step
+    const u8* mask = (m_has_obstacles && m_mask) ? m_mask->As<u8>() : nullptr;
+
+    const double k = 1.0 / (2.0 * sigma_cells * sigma_cells);
+    for (u32 z = 1; z <= m_params.nz; ++z) {
+        for (u32 y = 1; y <= m_params.ny; ++y) {
             for (u32 x = 1; x <= m_params.nx; ++x) {
-                const double r2 = (x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz);
                 const u64 i = wave_idx(x, y, z, m_params.sy, m_params.sz);
-                cur[i] = prev[i] = (float)std::exp(-r2 * k);   // equal values: starts at rest
+                if (mask && mask[i]) {
+                    continue; // inside an object: leave at 0
+                }
+                const double r2 = (x - cx) * (x - cx) + (y - cy) * (y - cy) + (z - cz) * (z - cz);
+                cur[i] = prev[i] = (float)std::exp(-r2 * k); // equal values: starts at rest
             }
+        }
+    }
     m_steps_done = 0;
 }
 
+void Simulator::InitPulse(float sigma_cells) {
+    // Centre of the box (interior cells run from 1 to n)
+    InitPulse(sigma_cells, (m_params.nx + 1) * 0.5, (m_params.ny + 1) * 0.5, (m_params.nz + 1) * 0.5);
+}
+
 RunTiming Simulator::Run(u32 steps, u32 batch) {
-    RunTiming timing;
-    const auto           start = std::chrono::steady_clock::now();
-    
+    RunTiming  timing;
+    const auto start = std::chrono::steady_clock::now();
+
     for (u32 done = 0; done < steps; done += batch) {
         timing.gpu_s += EncodeAndSubmit(std::min(batch, steps - done));
     }
-    
+
     timing.wall_s = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     return timing;
 }
@@ -117,58 +136,89 @@ double Simulator::EncodeAndSubmit(u32 steps) {
     Engine* engine = Engine::GetInstance();
     engine->Begin();
     engine->SetBytes(&m_params, sizeof(m_params), BIND_PARAMS);
+
+    Kernel* kernel = m_has_obstacles ? m_kernel_obstacles : m_kernel;
+    if (m_has_obstacles) {
+        engine->SetBuffer(m_mask.get(), BIND_MASK);
+    }
+
     // iterate sim steps
     for (u32 s = 0; s < steps; ++s) {
         engine->SetBuffer(m_curr.get(), BIND_U_CURR);
         engine->SetBuffer(m_prev.get(), BIND_U_PREV);
-        engine->Dispatch3D(m_kernel, m_params.nx, m_params.ny, m_params.nz);
+        engine->Dispatch3D(kernel, m_params.nx, m_params.ny, m_params.nz);
         std::swap(m_curr, m_prev);
     }
     m_steps_done += steps;
     return engine->Submit();
 }
 
+bool Simulator::LoadMask(const char* path) {
+    const size_t side  = (size_t)m_params.nx + 2; // ghost layer included
+    const size_t cells = side * side * side;
+    u8*          mask  = m_mask->As<u8>();
+
+    if (loader::LoadNrrdU8(path, side, mask) == false) {
+        return false;
+    }
+
+    // Sanity check: how much of the grid is solid
+    size_t solid = 0;
+    for (size_t i = 0; i < cells; ++i) {
+        solid += (mask[i] != 0);
+    }
+    std::printf("mask: %zu solid cells (%.1f%% of the grid)\n", solid, 100.0 * solid / cells);
+
+    m_has_obstacles = solid > 0;
+    return m_has_obstacles;
+}
 
 bool Simulator::DumpSliceZ(u32 z, const char* path) {
-    const u32 w = m_params.nx + 2, h = m_params.ny + 2;          // include the ghost layer
+    const u32    w = m_params.nx + 2, h = m_params.ny + 2; // include the ghost layer
     const float* plane = m_curr->As<float>() + (u64)z * m_params.sz;
 
     FILE* f = std::fopen(path, "wb");
-    if (!f) return false;
+    if (!f) {
+        return false;
+    }
     const u64 step = m_steps_done;
-    std::fwrite(&w,    sizeof(w),    1, f);                      // 16-byte header: w, h, step
-    std::fwrite(&h,    sizeof(h),    1, f);
+    std::fwrite(&w, sizeof(w), 1, f); // 16-byte header: w, h, step
+    std::fwrite(&h, sizeof(h), 1, f);
     std::fwrite(&step, sizeof(step), 1, f);
     std::fwrite(plane, sizeof(float), (size_t)w * h, f);
     std::fclose(f);
     return true;
 }
 
-
 bool Simulator::DumpVolume(const char* path, u32 stride) {
-    const u32 W = m_params.nx + 2, H = m_params.ny + 2, D = m_params.nz + 2;   // with ghost layer
+    const u32 W = m_params.nx + 2, H = m_params.ny + 2, D = m_params.nz + 2; // with ghost layer
     const u32 w = (W + stride - 1) / stride;
     const u32 h = (H + stride - 1) / stride;
     const u32 d = (D + stride - 1) / stride;
 
-    const float* u = m_curr->As<float>();
+    const float*       u = m_curr->As<float>();
     std::vector<float> out((size_t)w * h * d);
-    size_t o = 0;
-    for (u32 z = 0; z < D; z += stride)
-        for (u32 y = 0; y < H; y += stride)
-            for (u32 x = 0; x < W; x += stride)
+    size_t             o = 0;
+    for (u32 z = 0; z < D; z += stride) {
+        for (u32 y = 0; y < H; y += stride) {
+            for (u32 x = 0; x < W; x += stride) {
                 out[o++] = u[wave_idx(x, y, z, m_params.sy, m_params.sz)];
+            }
+        }
+    }
 
     FILE* f = std::fopen(path, "wb");
-    if (!f) return false;
+    if (!f) {
+        return false;
+    }
     const u64 step = m_steps_done;
-    
-    std::fwrite(&w, sizeof(u32), 1, f);                    // 24-byte header: w, h, d, stride, step
+
+    std::fwrite(&w, sizeof(u32), 1, f); // 24-byte header: w, h, d, stride, step
     std::fwrite(&h, sizeof(u32), 1, f);
     std::fwrite(&d, sizeof(u32), 1, f);
     std::fwrite(&stride, sizeof(u32), 1, f);
     std::fwrite(&step, sizeof(u64), 1, f);
-    std::fwrite(out.data(), sizeof(float), out.size(), f);  // x fastest, as VTK expects
+    std::fwrite(out.data(), sizeof(float), out.size(), f); // x fastest, as VTK expects
     std::fclose(f);
     return true;
 }
