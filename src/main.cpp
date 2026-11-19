@@ -66,10 +66,16 @@ void RunMaskedSimulation(const char* mask_path) {
     }
 }
 
-// RQ1 smoke test: the bunny scene at grid sizes on both sides of GPU memory, logged to CSV.
 void RunOversubscriptionTest(const char* mask_path) {
     std::filesystem::create_directories("results");
-    Benchmark bench("results/oversub.csv", "oversub-bunny-v1");
+
+    // results/oversub_bunny_960.csv, label "oversub-bunny_960-v1"
+    const std::string model = std::filesystem::path(mask_path).stem().string();
+    const std::string csv   = "results/oversub_" + model + ".csv";
+    const std::string label = "oversub-" + model + "-v1";
+    
+    Benchmark bench(csv, label);
+    log("recording to {}", csv);
 
     const u32 sizes[] = {512, 576, 640, 704, 768}; // 1.2 .. 4.1 GB incl. mask
     const u32 reps    = 3;
@@ -158,8 +164,12 @@ int main(int argc, const char* argv[]) {
     Engine::GetInstance()->Initialize();
 #if defined(TESSERA_BACKEND_METAL)
     RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
+    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_920.nrrd");
+    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_960.nrrd");
 #elif defined(TESSERA_BACKEND_CUDA)
     RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
+    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_920.nrrd");
+    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_960.nrrd");
 #endif
 
 #if defined(TESSERA_BACKEND_METAL)
