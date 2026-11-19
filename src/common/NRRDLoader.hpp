@@ -11,7 +11,8 @@
 
 namespace loader {
 
-std::string Trim(const std::string& s) {
+// inline: defined in a header, so including it from several .cpp files must not duplicate the symbol
+inline std::string Trim(const std::string& s) {
     const size_t a = s.find_first_not_of(" \t");
     const size_t b = s.find_last_not_of(" \t\r");
     return a == std::string::npos ? "" : s.substr(a, b - a + 1);
@@ -19,7 +20,7 @@ std::string Trim(const std::string& s) {
 
 // Reads a 3D uint8 NRRD whose sizes must all equal `side`, into `dst` (side^3 bytes).
 // Only the simple case is supported: raw encoding, data in the same file.
-bool LoadNrrdU8(const char* path, size_t side, unsigned char* dst) {
+inline bool LoadNrrdU8(const char* path, size_t side, unsigned char* dst) {
     std::ifstream file(path, std::ios::binary);
     if (!file) {
         log("NRRD: cannot open {}", path);

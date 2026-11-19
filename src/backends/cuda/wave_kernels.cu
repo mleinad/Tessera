@@ -15,9 +15,27 @@ __global__ void wave_step(const float *__restrict__ u,
     wave_update(u, u_prev, i, p.sy, p.sz, p.C);
 }
 
+// Same as wave_step, with rigid obstacles from a per-cell solid mask (see wave_update_obstacles)
+// Parameter order must match: BIND_U_CURR (0), BIND_U_PREV (1), BIND_PARAMS (2), BIND_MASK (3)
+__global__ void wave_step_obstacles(const float *__restrict__ u,
+                                    float *__restrict__ u_prev,
+                                    WaveParams p,
+                                    const u8 *__restrict__ solid)
+{
+    const u32 x = blockIdx.x * blockDim.x + threadIdx.x;
+    const u32 y = blockIdx.y * blockDim.y + threadIdx.y;
+    const u32 z = blockIdx.z;
+    if (x >= p.nx || y >= p.ny || z >= p.nz)
+        return;
+    u64 i = wave_idx(x + 1, y + 1, z + 1, p.sy, p.sz); // +1 skips the ghost layer
+    wave_update_obstacles(u, u_prev, solid, i, p.sy, p.sz, p.C);
+}
+
 const void *FindCudaKernel(const std::string &name)
 {
     if (name == "wave_step")
         return (const void *)wave_step;
+    if (name == "wave_step_obstacles")
+        return (const void *)wave_step_obstacles;
     return nullptr;
 }

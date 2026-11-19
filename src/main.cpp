@@ -111,8 +111,11 @@ int main(int argc, const char* argv[]) {
     NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 #endif
     Engine::GetInstance()->Initialize();
-
+#if defined(TESSERA_BACKEND_METAL)
     RunMaskedSimulation("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
+#else if defined(TESSERA_BACKEND_CUDA)
+    RunMaskedSimulation("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
+#endif
 
 #if defined(TESSERA_BACKEND_METAL)
     pool->release();
