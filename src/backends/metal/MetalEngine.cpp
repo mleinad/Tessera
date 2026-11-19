@@ -16,6 +16,12 @@ Engine* Engine::GetInstance() {
 }
 
 MetalEngine::MetalEngine() {
+    m_info.backend      = "metal";
+    m_info.device       = m_device->name()->utf8String();
+    m_info.memory_model = m_device->hasUnifiedMemory() ? "unified" : "discrete";
+    m_info.buffer_mode  = "shared";
+    m_info.peak_gbs     = m_info.device.find("M4 Pro") != std::string::npos ? 273.0 : 0.0;   // Apple's spec
+    m_info.memory_gb    = m_device->recommendedMaxWorkingSetSize() / 1e9;
 }
 
 MetalEngine::~MetalEngine() {
@@ -148,3 +154,6 @@ FitReport MetalEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) con
     }
     return r;
 }
+
+
+

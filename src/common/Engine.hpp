@@ -36,12 +36,24 @@ struct FitReport {
     const char* reason         = "";    // why it is not safe (empty when safe)
 };
 
+struct EngineInfo {
+    std::string backend;        // "metal" | "cuda"
+    std::string device;
+    std::string memory_model;   // "unified" | "discrete"
+    std::string buffer_mode;    // "shared" | "managed" | "device"
+    std::string driver;         // versions, "" if not applicable
+    double      peak_gbs  = 0;  // theoretical memory bandwidth, 0 if unknown
+    double      memory_gb = 0;  // GPU-usable memory in decimal GB
+};
+
 class Engine {
 public:
     virtual ~Engine() = default;
 
     static Engine* GetInstance(); // defined by the active backend
-
+    
+    virtual EngineInfo Info() const = 0;
+    
     virtual bool Initialize() = 0;
 
     virtual std::unique_ptr<Buffer> CreateBuffer(size_t bytes) = 0;
@@ -64,6 +76,8 @@ public:
 protected:
     // Host RAM always left free for the OS, the driver and other programs
     static constexpr size_t kHostHeadroom = size_t(1) << 30; // 1 GiB
+    
+    EngineInfo m_info;
 };
 
 #endif /* Engine_hpp */

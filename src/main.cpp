@@ -122,7 +122,7 @@ int main(int argc, const char* argv[]) {
     Engine::GetInstance()->Initialize();
 #if defined(TESSERA_BACKEND_METAL)
     RunMaskedSimulation("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
-#else if defined(TESSERA_BACKEND_CUDA)
+#elif defined(TESSERA_BACKEND_CUDA)
     RunMaskedSimulation("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
 #endif
 
