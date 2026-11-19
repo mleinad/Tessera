@@ -1,7 +1,7 @@
 #include "Benchmark.hpp"
 #include "sim/Simulator.hpp"
 #include "logger.hpp"
-
+#include <map>
 constexpr double kBytesPerCell = 12.0; // per interior cell per step: read u, read+write u_prev
 
 double Median(std::vector<double> v) {
@@ -35,7 +35,7 @@ Benchmark::~Benchmark() {
 
 const BenchmarkRow& Benchmark::Measure(Simulator& sim, u32 steps, u32 batch, u32 rep, bool validate) {
     const EngineInfo  info = Engine::GetInstance()->Info();
-    const WaveParams& p    = sim.Params();
+    const WaveParams& p    = sim.GetParams();
 
     const RunTiming t = sim.Run(steps, batch); // the only timed part
 

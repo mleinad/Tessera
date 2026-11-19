@@ -16,12 +16,6 @@ Engine* Engine::GetInstance() {
 }
 
 MetalEngine::MetalEngine() {
-    m_info.backend      = "metal";
-    m_info.device       = m_device->name()->utf8String();
-    m_info.memory_model = m_device->hasUnifiedMemory() ? "unified" : "discrete";
-    m_info.buffer_mode  = "shared";
-    m_info.peak_gbs     = m_info.device.find("M4 Pro") != std::string::npos ? 273.0 : 0.0;   // Apple's spec
-    m_info.memory_gb    = m_device->recommendedMaxWorkingSetSize() / 1e9;
 }
 
 MetalEngine::~MetalEngine() {
@@ -45,6 +39,14 @@ bool MetalEngine::Initialize() {
         log("Metal: no device available");
         return false;
     }
+
+    m_info.backend      = "metal";
+    m_info.device       = m_device->name()->utf8String();
+    m_info.memory_model = m_device->hasUnifiedMemory() ? "unified" : "discrete";
+    m_info.buffer_mode  = "shared";
+    m_info.peak_gbs     = m_info.device.find("M4 Pro") != std::string::npos ? 273.0 : 0.0;   // Apple's spec
+    m_info.memory_gb    = m_device->recommendedMaxWorkingSetSize() / 1e9;
+
     m_command_queue = m_device->newCommandQueue();
     m_kernels       = std::make_unique<MetalKernelLibrary>(m_device);
     m_initialized   = true;

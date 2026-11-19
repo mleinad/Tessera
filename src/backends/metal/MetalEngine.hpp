@@ -46,7 +46,9 @@ public:
 
     FitReport CheckFit(size_t bytes_per_buffer, size_t total_bytes) const override;
 
-    EngineInfo MetalEngine::Info() const { return m_info; }
+    EngineInfo Info() const override {
+        return m_info;
+    }
 private:
     MTL::Device*                        m_device{nullptr};
     MTL::CommandQueue*                  m_command_queue{nullptr};

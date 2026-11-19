@@ -18,11 +18,15 @@ public:
 
     // Memory a Simulator(n) allocates, ghost layer included: two float32 fields + the u8 obstacle mask.
     // Pass to Engine::CheckFit before constructing.
-    static size_t FieldBytes(u32 n) { return (size_t)(n + 2) * (n + 2) * (n + 2) * sizeof(float); }
-    static size_t TotalBytes(u32 n) { return 2 * FieldBytes(n) + (size_t)(n + 2) * (n + 2) * (n + 2); }
+    static size_t FieldBytes(u32 n) {
+        return (size_t)(n + 2) * (n + 2) * (n + 2) * sizeof(float);
+    }
+    static size_t TotalBytes(u32 n) {
+        return 2 * FieldBytes(n) + (size_t)(n + 2) * (n + 2) * (n + 2);
+    }
 
     void InitStandingWave();
-    
+
     void InitPulse(float sigma_cells, double cx, double cy, double cz);
     void InitPulse(float sigma_cells);
 
@@ -36,9 +40,13 @@ public:
     }
 
     bool LoadMask(const char* path);
-    
+
     bool DumpSliceZ(u32 z, const char* path);
     bool DumpVolume(const char* path, u32 stride);
+
+    WaveParams GetParams() const {
+        return m_params;
+    }
 private:
     WaveParams              m_params{};
     std::unique_ptr<Buffer> m_curr;
