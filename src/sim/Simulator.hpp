@@ -47,6 +47,9 @@ public:
     WaveParams GetParams() const {
         return m_params;
     }
+    bool HasObstacles() const {
+        return m_has_obstacles;
+    }
 private:
     WaveParams              m_params{};
     std::unique_ptr<Buffer> m_curr;

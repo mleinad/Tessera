@@ -38,10 +38,11 @@ public:
 
     // Memory mode for buffers created from now on. Default: Managed,
     // or Device when the environment variable TESSERA_CUDA_MEMORY=device is set.
-    void             SetBufferMode(CudaBuffer::Mode mode) { m_buffer_mode = mode; }
+    void SetBufferMode(CudaBuffer::Mode mode) { m_buffer_mode = mode; }
     CudaBuffer::Mode GetBufferMode() const { return m_buffer_mode; }
-    
-    EngineInfo CudaEngine::Info() const { return m_info; }
+
+    EngineInfo Info() const { return m_info; }
+
 private:
     int m_device{0}; // CUDA device index
     CudaBuffer::Mode m_buffer_mode{CudaBuffer::Mode::Managed};

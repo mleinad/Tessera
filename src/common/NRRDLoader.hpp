@@ -85,35 +85,44 @@ inline bool LoadNrrdU8(const char* path, size_t side, unsigned char* dst) {
             detached ? " detached" : "");
         return false;
     }
-    for (long s : sizes) {
-        if (s != (long)side) {
-            log("NRRD: {} has sizes {} {} {}, expected {} {} {}",
-                path,
-                sizes[0],
-                sizes[1],
-                sizes[2],
-                side,
-                side,
-                side);
-            return false;
-        }
-    }
-
-    const size_t bytes = side * side * side;
-    file.read(reinterpret_cast<char*>(dst), (std::streamsize)bytes);
-    if ((size_t)file.gcount() != bytes) {
-        log("NRRD: {} is truncated ({} of {} bytes)", path, file.gcount(), bytes);
+    if (sizes[0] != sizes[1] || sizes[1] != sizes[2] || sizes[0] < 2) {
+        log("NRRD: {} has sizes {} {} {}, expected a cube", path, sizes[0], sizes[1], sizes[2]);
         return false;
     }
+    const size_t src_side  = (size_t)sizes[0];
+    const size_t src_bytes = src_side * src_side * src_side;
 
-    log("NRRD: loaded {} ({} x {} x {}, {}, {}, {} bytes)",
-        path,
-        side,
-        side,
-        side,
-        type,
-        encoding,
-        bytes);
+    if (src_side == side) {
+        file.read(reinterpret_cast<char*>(dst), (std::streamsize)src_bytes);
+        if ((size_t)file.gcount() != src_bytes) {
+            log("NRRD: {} is truncated ({} of {} bytes)", path, file.gcount(), src_bytes);
+            return false;
+        }
+        log("NRRD: loaded {} ({}^3, {}, {}, {} bytes)", path, side, type, encoding, src_bytes);
+        return true;
+    }
+
+    // Different grid size: nearest-neighbour resample, so one model serves every n of a sweep.
+    // The ends map to the ends, so the source's (air) ghost layer stays the ghost layer.
+    std::string src(src_bytes, '\0');
+    file.read(src.data(), (std::streamsize)src_bytes);
+    if ((size_t)file.gcount() != src_bytes) {
+        log("NRRD: {} is truncated ({} of {} bytes)", path, file.gcount(), src_bytes);
+        return false;
+    }
+    const double scale = (double)(src_side - 1) / (double)(side - 1);
+    for (size_t z = 0; z < side; ++z) {
+        const size_t sz = (size_t)(z * scale + 0.5);
+        for (size_t y = 0; y < side; ++y) {
+            const size_t sy  = (size_t)(y * scale + 0.5);
+            const char*  row = src.data() + (sz * src_side + sy) * src_side;
+            unsigned char* out = dst + (z * side + y) * side;
+            for (size_t x = 0; x < side; ++x) {
+                out[x] = (unsigned char)row[(size_t)(x * scale + 0.5)];
+            }
+        }
+    }
+    log("NRRD: loaded {} ({}^3) resampled to {}^3 (nearest neighbour)", path, src_side, side);
     return true;
 }
 

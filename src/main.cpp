@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <vector>
 
+#include "common/Benchmark.hpp"
 #include "common/Engine.hpp"
 #include "common/logger.hpp"
 #include "sim/Simulator.hpp"
@@ -65,7 +66,42 @@ void RunMaskedSimulation(const char* mask_path) {
     }
 }
 
-void Benchmark() {
+// RQ1 smoke test: the bunny scene at grid sizes on both sides of GPU memory, logged to CSV.
+void RunOversubscriptionTest(const char* mask_path) {
+    std::filesystem::create_directories("results");
+    Benchmark bench("results/oversub.csv", "oversub-bunny-v1");
+
+    const u32 sizes[] = {512, 576, 640, 704, 768}; // 1.2 .. 4.1 GB incl. mask
+    const u32 reps    = 3;
+    const u32 steps   = 10;
+    const u32 batch   = 5;
+
+    for (u32 n : sizes) {
+        const FitReport fit = Engine::GetInstance()->CheckFit(Simulator::FieldBytes(n), Simulator::TotalBytes(n));
+        if (!fit.safe) {
+            log("skip n={}: {:.2f} GB needed, {:.2f} GB host RAM available: {}",
+                n, fit.host_needed / 1e9, fit.host_available / 1e9, fit.reason);
+            continue;
+        }
+
+        Simulator sim(n, 0.5f);
+        if (!sim.LoadMask(mask_path)) { // resampled from the model's grid to n
+            log("could not load {}", mask_path);
+            return;
+        }
+        const double mid = (n + 1) * 0.5;
+        sim.InitPulse(3.0f, n / 5.0, mid, mid);
+
+        sim.Run(2, 1); // warm-up: the first steps migrate every page that was created on the CPU
+
+        for (u32 r = 0; r < reps; ++r) {
+            bench.Measure(sim, steps, batch, r);
+        }
+    }
+    bench.PrintSummary();
+}
+
+void RunBasicBenchmark() {
     struct Row {
         u32    n;
         double gb;
@@ -121,9 +157,9 @@ int main(int argc, const char* argv[]) {
 #endif
     Engine::GetInstance()->Initialize();
 #if defined(TESSERA_BACKEND_METAL)
-    RunMaskedSimulation("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
+    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
 #elif defined(TESSERA_BACKEND_CUDA)
-    RunMaskedSimulation("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
+    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
 #endif
 
 #if defined(TESSERA_BACKEND_METAL)

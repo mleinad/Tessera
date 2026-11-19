@@ -1,10 +1,13 @@
 #include "Benchmark.hpp"
 #include "sim/Simulator.hpp"
 #include "logger.hpp"
-#include <map>
-constexpr double kBytesPerCell = 12.0; // per interior cell per step: read u, read+write u_prev
 
-double Median(std::vector<double> v) {
+#include <algorithm>
+#include <map>
+constexpr double kBytesPerCell     = 12.0; // per interior cell per step: read u, read+write u_prev
+constexpr double kMaskBytesPerCell = 1.0;  // obstacle runs: 7 mask reads per cell, ~1 B from DRAM after caching
+
+static double Median(std::vector<double> v) {
     if (v.empty()) {
         return 0.0;
     }
@@ -52,7 +55,8 @@ const BenchmarkRow& Benchmark::Measure(Simulator& sim, u32 steps, u32 batch, u32
 #endif
     r.n        = p.nx;
     r.grid_gb  = 2.0 * (p.nx + 2.0) * (p.ny + 2.0) * (p.nz + 2.0) * sizeof(float) / 1e9;
-    r.fits     = info.memory_gb <= 0 || r.grid_gb <= info.memory_gb;
+    // Everything the simulator allocated (fields + mask) must fit, not just the fields
+    r.fits     = info.memory_gb <= 0 || Simulator::TotalBytes(p.nx) / 1e9 <= info.memory_gb;
     r.rep      = rep;
     r.steps    = steps;
     r.batch    = batch;
@@ -60,8 +64,10 @@ const BenchmarkRow& Benchmark::Measure(Simulator& sim, u32 steps, u32 batch, u32
     r.wall_s   = t.wall_s;
     r.ms_step  = t.gpu_s / steps * 1e3;
     r.wall_ms  = t.wall_s / steps * 1e3;
-    r.gbps     = kBytesPerCell * (double)sim.InteriorCells() * steps / t.gpu_s / 1e9;
+    const double bytes_per_cell = kBytesPerCell + (sim.HasObstacles() ? kMaskBytesPerCell : 0.0);
+    r.gbps     = bytes_per_cell * (double)sim.InteriorCells() * steps / t.gpu_s / 1e9;
     r.pct_peak = info.peak_gbs > 0 ? 100.0 * r.gbps / info.peak_gbs : 0.0;
+    validate   = validate && !sim.HasObstacles(); // the exact standing-wave solution has no obstacles
     if (validate) {
         r.max_error = sim.MaxErrorVsExact(); // after timing; CPU loop over the grid
     }
