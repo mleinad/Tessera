@@ -34,7 +34,7 @@ public:
 
     double Submit() override;
 
-    bool CanFit(size_t bytes_per_buffer, size_t total_bytes) const override;
+    FitReport CheckFit(size_t bytes_per_buffer, size_t total_bytes) const override;
 
     // Memory mode for buffers created from now on. Default: Managed,
     // or Device when the environment variable TESSERA_CUDA_MEMORY=device is set.

@@ -8,6 +8,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <cuda_runtime.h>
@@ -151,10 +152,56 @@ double CudaEngine::Submit()
     return ms / 1e3;
 }
 
-bool CudaEngine::CanFit(size_t bytes_per_buffer, size_t total_bytes) const
+// Host RAM the kernel can hand out without swapping (MemAvailable). Swap is not counted:
+// managed pages in use by the driver are not reliably swappable.
+static size_t AvailableHostBytes()
 {
-    // "Fits" = fits in free VRAM without oversubscription (managed memory can still go beyond)
-    size_t free_bytes = 0, vram_bytes = 0;
-    CUDA_CHECK(cudaMemGetInfo(&free_bytes, &vram_bytes));
-    return bytes_per_buffer <= free_bytes && total_bytes <= free_bytes;
+    std::FILE* f = std::fopen("/proc/meminfo", "r");
+    if (!f)
+    {
+        return 0;
+    }
+    char   line[256];
+    size_t kb = 0;
+    while (std::fgets(line, sizeof(line), f))
+    {
+        if (std::sscanf(line, "MemAvailable: %zu kB", &kb) == 1)
+        {
+            break;
+        }
+    }
+    std::fclose(f);
+    return kb * 1024;
+}
+
+FitReport CudaEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) const
+{
+    (void)bytes_per_buffer; // CUDA has no per-allocation limit below free memory
+
+    size_t free_vram = 0, total_vram = 0;
+    CUDA_CHECK(cudaMemGetInfo(&free_vram, &total_vram));
+
+    FitReport r;
+    r.fits_fast      = total_bytes <= free_vram;
+    r.host_available = AvailableHostBytes();
+
+    // The simulator initialises and validates on the CPU, so every page is in host RAM at some point:
+    // Managed pages are first created on the CPU, Device mode keeps a host mirror of each buffer.
+    // Peak host use is therefore the whole working set. Lower this to (total - free VRAM) once
+    // initialisation and validation run on the GPU.
+    r.host_needed = total_bytes;
+
+    if (m_buffer_mode == CudaBuffer::Mode::Device && !r.fits_fast)
+    {
+        r.reason = "device mode needs the whole working set in free VRAM";
+    }
+    else if (r.host_needed + kHostHeadroom > r.host_available)
+    {
+        r.reason = "not enough host RAM (the process would be OOM-killed)";
+    }
+    else
+    {
+        r.safe = true;
+    }
+    return r;
 }

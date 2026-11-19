@@ -69,6 +69,7 @@ void Benchmark() {
     struct Row {
         u32    n;
         double gb;
+        bool   fast; // whole working set in fast GPU memory (VRAM / Metal working set)
         u32    rep;
         double ms, gbps, err;
     };
@@ -82,6 +83,14 @@ void Benchmark() {
     for (u32 n : sizes) {
         double gb = 2.0 * (n + 2.0) * (n + 2.0) * (n + 2.0) * 4.0 / 1e9; // both fields
 
+        // Skip sizes that would exhaust memory instead of crashing / being OOM-killed
+        const FitReport fit = Engine::GetInstance()->CheckFit(Simulator::FieldBytes(n), Simulator::TotalBytes(n));
+        if (!fit.safe) {
+            log("skip n={}: needs {:.2f} GB host RAM (+1 GB headroom), {:.2f} GB available: {}",
+                n, fit.host_needed / 1e9, fit.host_available / 1e9, fit.reason);
+            continue;
+        }
+
         Simulator sim(n, 0.5f);
         sim.InitStandingWave();
         sim.Run(5, 5); // warm-up
@@ -91,7 +100,7 @@ void Benchmark() {
             RunTiming t    = sim.Run(steps, 5); // small batches: large steps take ~50 ms each
             double    ms   = t.gpu_s / steps * 1e3;
             double    gbps = 12.0 * sim.InteriorCells() * steps / t.gpu_s / 1e9;
-            rows.push_back({n, gb, r, ms, gbps, 0.0});
+            rows.push_back({n, gb, fit.fits_fast, r, ms, gbps, 0.0});
         }
 
         const double err = sim.MaxErrorVsExact(); // after the timed runs, outside timing
@@ -100,9 +109,9 @@ void Benchmark() {
         }
     }
 
-    std::printf("n,GB,rep,ms_per_step,GBps,max_error\n");
+    std::printf("n,GB,fast,rep,ms_per_step,GBps,max_error\n");
     for (const Row& row : rows) {
-        std::printf("%u,%.2f,%u,%.3f,%.1f,%.2e\n", row.n, row.gb, row.rep, row.ms, row.gbps, row.err);
+        std::printf("%u,%.2f,%d,%u,%.3f,%.1f,%.2e\n", row.n, row.gb, row.fast, row.rep, row.ms, row.gbps, row.err);
     }
 }
 

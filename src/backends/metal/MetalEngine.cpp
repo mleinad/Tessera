@@ -6,6 +6,7 @@
 
 #include <cassert>
 #include <cmath>
+#include <mach/mach.h> // host_statistics64: free RAM for CheckFit
 
 MetalEngine* MetalEngine::m_instance = nullptr;
 
@@ -116,6 +117,34 @@ void MetalEngine::Dispatch3D(MTL::ComputePipelineState* pso, MTL::Size grid) {
     m_compute_command_encoder->dispatchThreads(grid, MTL::Size(w, h, 1)); // x is contiguous in memory
 }
 
-bool MetalEngine::CanFit(size_t bytes_per_buffer, size_t total_bytes) const {
-    return bytes_per_buffer <= m_device->maxBufferLength() && total_bytes <= m_device->recommendedMaxWorkingSetSize();
+// RAM macOS can hand out without swapping: free + inactive + purgeable + speculative pages.
+// Conservative: the memory compressor can usually free a bit more.
+static size_t AvailableHostBytes() {
+    vm_size_t page = 0;
+    host_page_size(mach_host_self(), &page);
+
+    vm_statistics64_data_t vm{};
+    mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vm, &count) != KERN_SUCCESS) {
+        return 0;
+    }
+    return (size_t)(vm.free_count + vm.inactive_count + vm.purgeable_count + vm.speculative_count) * page;
+}
+
+FitReport MetalEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) const {
+    FitReport r;
+    // Unified memory: GPU buffers are host RAM. Beyond the recommended working set the GPU still works,
+    // but the OS may start paging, so that is the "fast memory" limit.
+    r.fits_fast      = total_bytes <= m_device->recommendedMaxWorkingSetSize();
+    r.host_needed    = total_bytes;
+    r.host_available = AvailableHostBytes();
+
+    if (bytes_per_buffer > m_device->maxBufferLength()) {
+        r.reason = "a buffer exceeds maxBufferLength (newBuffer would fail)";
+    } else if (r.host_needed + kHostHeadroom > r.host_available) {
+        r.reason = "not enough free RAM (macOS would swap heavily or kill the process)";
+    } else {
+        r.safe = true;
+    }
+    return r;
 }

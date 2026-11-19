@@ -27,6 +27,15 @@ public:
     }
 };
 
+// Result of Engine::CheckFit: can a working set run without crashing, and will it stay in fast memory?
+struct FitReport {
+    bool        safe           = false; // allocating and running should not exhaust memory (no crash / OOM kill)
+    bool        fits_fast      = false; // whole working set stays in fast GPU memory (no paging / migration)
+    size_t      host_needed    = 0;     // estimated peak host RAM for this run
+    size_t      host_available = 0;     // host RAM available right now
+    const char* reason         = "";    // why it is not safe (empty when safe)
+};
+
 class Engine {
 public:
     virtual ~Engine() = default;
@@ -45,7 +54,16 @@ public:
     virtual void   Dispatch3D(Kernel* kernel, size_t x, size_t y, size_t z) = 0;
     virtual double Submit() = 0; // waits for completion, returns GPU seconds
 
-    virtual bool CanFit(size_t bytes_per_buffer, size_t total_bytes) const = 0;
+    // Check before allocating. bytes_per_buffer: the largest single buffer; total_bytes: all buffers together.
+    virtual FitReport CheckFit(size_t bytes_per_buffer, size_t total_bytes) const = 0;
+
+    bool CanFit(size_t bytes_per_buffer, size_t total_bytes) const {
+        return CheckFit(bytes_per_buffer, total_bytes).safe;
+    }
+
+protected:
+    // Host RAM always left free for the OS, the driver and other programs
+    static constexpr size_t kHostHeadroom = size_t(1) << 30; // 1 GiB
 };
 
 #endif /* Engine_hpp */

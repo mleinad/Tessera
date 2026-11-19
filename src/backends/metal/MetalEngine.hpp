@@ -44,7 +44,7 @@ public:
 
     void Dispatch3D(MTL::ComputePipelineState* pso, MTL::Size grid);
 
-    bool CanFit(size_t bytes_per_buffer, size_t total_bytes) const override;
+    FitReport CheckFit(size_t bytes_per_buffer, size_t total_bytes) const override;
 
 private:
     MTL::Device*                        m_device{nullptr};
