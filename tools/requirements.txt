@@ -1,0 +1,8 @@
+numpy
+matplotlib
+pyvista
+imageio
+imageio-ffmpeg
+pynrrd
+trimesh
+scipy
