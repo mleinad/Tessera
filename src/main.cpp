@@ -42,6 +42,63 @@ void RunVisualization() {
     }
 }
 
+static u32 SizeForGB(double gb) {
+    const double target = gb * 1e9;
+    u32 lo = 1, hi = 1u << 13;
+    while (lo < hi) {
+        const u32 mid = lo + (hi - lo + 1) / 2;
+        if (static_cast<double>(Simulator::TotalBytes(mid)) <= target) lo = mid;
+        else hi = mid - 1;
+    }
+    return lo;
+}
+
+void RunDeviceMemoryTest(const char* mask_path) {
+    std::filesystem::create_directories("results");
+
+    // results/oversub_bunny_960.csv, label "oversub-bunny_960-v1"
+    const std::string model = std::filesystem::path(mask_path).stem().string();
+    const std::string csv   = "results/oversub_" + model + ".csv";
+    const std::string label = "oversub-" + model + "-v1";
+    
+    Benchmark bench(csv, label);
+    log("recording to {}", csv);
+
+    const double sizes_gb[] = {1.2, 2.5, 3.8};
+    const u32 reps    = 3;
+    const u32 steps   = 10;
+    const u32 batch   = 5;
+
+    for (double gb : sizes_gb) {
+        const u32 n = SizeForGB(gb);    
+        log("target {:.1f} GB -> n={} ({:.2f} GB actual)", gb, n, Simulator::TotalBytes(n) / 1e9);
+
+
+        const FitReport fit = Engine::GetInstance()->CheckFit(Simulator::FieldBytes(n), Simulator::TotalBytes(n));
+        if (!fit.safe) {
+            log("skip n={}: {:.2f} GB needed, {:.2f} GB host RAM available: {}",
+                n, fit.host_needed / 1e9, fit.host_available / 1e9, fit.reason);
+            continue;
+        }
+
+        Simulator sim(n, 0.5f);
+        if (!sim.LoadMask(mask_path)) { // resampled from the model's grid to n
+            log("could not load {}", mask_path);
+            return;
+        }
+        const double mid = (n + 1) * 0.5;
+        sim.InitPulse(3.0f, n / 5.0, mid, mid);
+
+        sim.Run(2, 1); // warm-up: the first steps migrate every page that was created on the CPU
+
+        for (u32 r = 0; r < reps; ++r) {
+            bench.Measure(sim, steps, batch, r);
+        }
+    }
+    bench.PrintSummary();
+}
+
+
 void RunMaskedSimulation(const char* mask_path) {
     std::filesystem::create_directories("frames");
 
@@ -77,7 +134,7 @@ void RunOversubscriptionTest(const char* mask_path) {
     Benchmark bench(csv, label);
     log("recording to {}", csv);
 
-    const u32 sizes[] = {512, 576, 640, 704, 768}; // 1.2 .. 4.1 GB incl. mask
+    const u32 sizes[] = {512, 640, 768, 864, 928, 960, 992, 1024}; // 1.2 .. 4.1 GB incl. mask
     const u32 reps    = 3;
     const u32 steps   = 10;
     const u32 batch   = 5;
@@ -167,9 +224,9 @@ int main(int argc, const char* argv[]) {
     RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_920.nrrd");
     RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_960.nrrd");
 #elif defined(TESSERA_BACKEND_CUDA)
-    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
-    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_920.nrrd");
-    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_960.nrrd");
+    RunDeviceMemoryTest("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
+    //RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_920.nrrd");
+    //RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_960.nrrd");
 #endif
 
 #if defined(TESSERA_BACKEND_METAL)

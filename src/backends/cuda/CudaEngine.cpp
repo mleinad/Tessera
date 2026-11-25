@@ -52,10 +52,8 @@ bool CudaEngine::Initialize()
     m_kernels = std::make_unique<CudaKernelLibrary>();
     m_initialized = true;
 
-    if (const char *mem = std::getenv("TESSERA_CUDA_MEMORY"); mem && std::strcmp(mem, "device") == 0)
-    {
-        m_buffer_mode = CudaBuffer::Mode::Device;
-    }
+
+    m_buffer_mode = CudaBuffer::Mode::Device;
 
     // Peak DRAM bandwidth: the stencil is memory-bound, so this is the roofline to compare GB/s against
     int mem_clock_khz = 0, bus_width_bits = 0;
