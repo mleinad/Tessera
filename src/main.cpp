@@ -134,7 +134,7 @@ void RunOversubscriptionTest(const char* mask_path) {
     Benchmark bench(csv, label);
     log("recording to {}", csv);
 
-    const u32 sizes[] = {512, 640, 768, 864, 928, 960, 992, 1024}; // 1.2 .. 4.1 GB incl. mask
+    const u32 sizes[] = {512, 640, 768, 864, 928, 960, 992, 1024};
     const u32 reps    = 3;
     const u32 steps   = 10;
     const u32 batch   = 5;
@@ -160,9 +160,37 @@ void RunOversubscriptionTest(const char* mask_path) {
         for (u32 r = 0; r < reps; ++r) {
             bench.Measure(sim, steps, batch, r);
         }
+// visualize with
+//        char path[64];
+//        std::snprintf(path, sizeof(path), "results/vol_n%u.bin", n);
+//        sim.DumpVolume(path, 4);
     }
     bench.PrintSummary();
 }
+
+void RunKernelComparison() {
+    std::filesystem::create_directories("results");
+    Benchmark bench("results/kernels.csv", "naive-vs-tiled-v1");
+
+    const u32 sizes[] = {256, 512, 768, 1000};
+    const u32 reps = 5, steps = 20, batch = 5;
+
+    for (u32 n : sizes) {
+        // Alternate which variant goes first, so heat build-up doesn't favour one of them
+        const bool tiled_first = (n / 256) % 2 == 1;
+        const KernelVariant order[2] = {tiled_first ? KernelVariant::Tiled : KernelVariant::Naive,
+                                        tiled_first ? KernelVariant::Naive : KernelVariant::Tiled};
+        for (KernelVariant v : order) {
+            Simulator sim(n, 0.5f, v);          // one simulator at a time: memory freed when it goes out of scope
+            sim.InitStandingWave();
+            sim.Run(10, 5);                     // warm-up
+            for (u32 r = 0; r < reps; ++r)
+                bench.Measure(sim, steps, batch, r, r == reps - 1);   // validate the last rep
+        }
+    }
+    bench.PrintSummary();
+}
+
 
 void RunBasicBenchmark() {
     struct Row {
@@ -219,15 +247,18 @@ int main(int argc, const char* argv[]) {
     NS::AutoreleasePool* pool = NS::AutoreleasePool::alloc()->init();
 #endif
     Engine::GetInstance()->Initialize();
-#if defined(TESSERA_BACKEND_METAL)
-    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
-    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_920.nrrd");
-    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_960.nrrd");
-#elif defined(TESSERA_BACKEND_CUDA)
-    RunDeviceMemoryTest("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
-    //RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_920.nrrd");
-    //RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_960.nrrd");
-#endif
+
+    RunKernelComparison();
+    
+//#if defined(TESSERA_BACKEND_METAL)
+//    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_256.nrrd");
+//    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_920.nrrd");
+//    RunOversubscriptionTest("/Users/daniel.malheiro/Documents/fcul/PPC/Projects/Tessera/tools/bunny_960.nrrd");
+//#elif defined(TESSERA_BACKEND_CUDA)
+//    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_256.nrrd");
+//    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_920.nrrd");
+//    RunOversubscriptionTest("/home/daniel/Dev/Tessera/tools/bunny_960.nrrd");
+//#endif
 
 #if defined(TESSERA_BACKEND_METAL)
     pool->release();

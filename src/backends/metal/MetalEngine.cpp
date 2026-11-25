@@ -117,6 +117,14 @@ void MetalEngine::Dispatch3D(Kernel* kernel, size_t x, size_t y, size_t z) {
     Dispatch3D(static_cast<MetalKernel*>(kernel)->Get(), MTL::Size(x, y, z));
 }
 
+void MetalEngine::DispatchColumns(Kernel* kernel, size_t x, size_t y) {
+    MTL::ComputePipelineState* pso = static_cast<MetalKernel*>(kernel)->Get();
+    m_compute_command_encoder->setComputePipelineState(pso);
+    m_compute_command_encoder->dispatchThreadgroups(
+        MTL::Size((x + TILE_X - 1) / TILE_X, (y + TILE_Y - 1) / TILE_Y, 1),
+        MTL::Size(TILE_X, TILE_Y, 1));
+}
+
 void MetalEngine::Dispatch3D(MTL::ComputePipelineState* pso, MTL::Size grid) {
     NS::UInteger w = pso->threadExecutionWidth(); // 32 on Apple GPUs
     NS::UInteger h = pso->maxTotalThreadsPerThreadgroup() / w;
@@ -141,18 +149,22 @@ static size_t AvailableHostBytes() {
 
 FitReport MetalEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) const {
     FitReport r;
-    // Unified memory: GPU buffers are host RAM. Beyond the recommended working set the GPU still works,
-    // but the OS may start paging, so that is the "fast memory" limit.
     r.fits_fast      = total_bytes <= m_device->recommendedMaxWorkingSetSize();
     r.host_needed    = total_bytes;
     r.host_available = AvailableHostBytes();
 
     if (bytes_per_buffer > m_device->maxBufferLength()) {
         r.reason = "a buffer exceeds maxBufferLength (newBuffer would fail)";
-    } else if (r.host_needed + kHostHeadroom > r.host_available) {
-        r.reason = "not enough free RAM (macOS would swap heavily or kill the process)";
+    } else if (!r.fits_fast) {
+        r.reason = "exceeds the GPU's recommended working set (macOS would page GPU memory)";
     } else {
         r.safe = true;
+        if (r.host_needed + kHostHeadroom > r.host_available) {
+            // Not a reason to skip: macOS reclaims cached files and compresses memory on demand.
+            // Close other apps for clean timings, and watch for swapping (below).
+            log("note: only {:.1f} GB looks free right now. MacOS will reclaim caches, but close other apps",
+                r.host_available / 1e9);
+        }
     }
     return r;
 }

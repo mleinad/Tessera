@@ -22,7 +22,7 @@ static std::vector<double> SineTable(u32 n) {
     return t;
 }
 
-Simulator::Simulator(u32 n, float courant) {
+Simulator::Simulator(u32 n, float courant, KernelVariant variant) {
     m_params.nx = m_params.ny = m_params.nz = n;
     m_params.sy                             = n + 2;
     m_params.sz                             = (u64)(n + 2) * (n + 2);
@@ -30,7 +30,7 @@ Simulator::Simulator(u32 n, float courant) {
     size_t bytes                            = (size_t)(n + 2) * m_params.sz * sizeof(float);
     m_curr                                  = Engine::GetInstance()->CreateBuffer(bytes);
     m_prev                                  = Engine::GetInstance()->CreateBuffer(bytes);
-    m_kernel                                = Engine::GetInstance()->GetKernel("wave_step");
+    m_kernel                                = Engine::GetInstance()->GetKernel(variant == KernelVariant::Tiled ? "wave_step_tiled" : "wave_step");
 
     const size_t cells = (size_t)(n + 2) * (n + 2) * (n + 2);
     m_mask             = Engine::GetInstance()->CreateBuffer(cells);
@@ -73,7 +73,7 @@ void Simulator::InitStandingWave() {
 void Simulator::InitPulse(float sigma_cells, double cx, double cy, double cz) {
     float* cur  = m_curr->As<float>();
     float* prev = m_prev->As<float>();
-    
+
     std::memset(cur, 0, m_curr->Size()); // ghost layer must be exactly zero
     std::memset(prev, 0, m_prev->Size());
 

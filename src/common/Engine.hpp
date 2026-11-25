@@ -64,6 +64,9 @@ public:
     virtual void   SetBuffer(Buffer* buffer, uint32_t index) = 0;
     virtual void   SetBytes(const void* data, size_t bytes, uint32_t index) = 0;
     virtual void   Dispatch3D(Kernel* kernel, size_t x, size_t y, size_t z) = 0;
+    
+    virtual void DispatchColumns(Kernel* kernel, size_t x, size_t y) = 0;
+    
     virtual double Submit() = 0; // waits for completion, returns GPU seconds
 
     // Check before allocating. bytes_per_buffer: the largest single buffer; total_bytes: all buffers together.
