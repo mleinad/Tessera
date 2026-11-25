@@ -16,6 +16,7 @@ struct BenchmarkRow {
     std::string memory_model;   // "unified" | "discrete"
     std::string buffer_mode;    // "shared" | "managed" | "device"
     std::string build;          // "release" | "debug": never trust timings from debug builds
+    std::string kernel;         // "naive" | "tiled"
     u32    n         = 0;
     double grid_gb   = 0;       // both fields, ghost layer included, decimal GB
     bool   fits      = false;   // grid fits in GPU-usable memory (no paging / oversubscription)

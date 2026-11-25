@@ -10,11 +10,17 @@ struct RunTiming {
     double wall_s = 0.0; // host elapsed time for the whole run
 };
 
+enum class KernelVariant {
+    Naive,
+    Tiled,
+    Unknown
+};
+
 class Buffer;
 class Kernel;
 class Simulator {
 public:
-    Simulator(u32 n, float courant);
+    Simulator(u32 n, float courant, KernelVariant variant = KernelVariant::Naive);
 
     // Memory a Simulator(n) allocates, ghost layer included: two float32 fields + the u8 obstacle mask.
     // Pass to Engine::CheckFit before constructing.
@@ -50,6 +56,14 @@ public:
     bool HasObstacles() const {
         return m_has_obstacles;
     }
+
+    KernelVariant Variant() const {
+        return m_variant;
+    }
+
+    const char* KernelName() const {
+        return m_variant == KernelVariant::Tiled ? "tiled" : "naive";
+    }
 private:
     WaveParams              m_params{};
     std::unique_ptr<Buffer> m_curr;
@@ -61,6 +75,8 @@ private:
     std::unique_ptr<Buffer> m_mask;
     Kernel*                 m_kernel_obstacles{nullptr};
     bool                    m_has_obstacles = false;
+
+    KernelVariant m_variant = KernelVariant::Naive;
 };
 
 #endif /* Simulator_hpp */

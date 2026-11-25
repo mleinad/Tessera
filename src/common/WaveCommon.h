@@ -30,6 +30,10 @@ typedef uint64_t u64;
 #define BIND_PARAMS 2
 #define BIND_MASK   3
 
+// https://developer.download.nvidia.com/CUDA/CUDA_Zone/papers/gpu_3dfd_rev.pdf
+#define TILE_X 32
+#define TILE_Y 8
+
 struct WaveParams {
     // interior size (grid is (n+2)^3 with a zero ghost layer)
     u32 nx;
@@ -45,9 +49,17 @@ WAVE_FN u64 wave_idx(u32 x, u32 y, u32 z, u64 sy, u64 sz) {
     return (u64)x + (u64)y * sy + (u64)z * sz;
 }
 
-WAVE_FN void wave_update(const WAVE_GLOBAL float* u, WAVE_GLOBAL float* u_prev, u64 i, u64 sy, u64 sz, float C) {
-    float lap = u[i - 1] + u[i + 1] + u[i - sy] + u[i + sy] + u[i - sz] + u[i + sz] - 6.0f * u[i];
-    u_prev[i] = 2.0f * u[i] - u_prev[i] + C * lap;
+// part of Micikevicius's improvements 
+WAVE_FN float wave_update_values(float c, float xm, float xp, float ym, float yp,
+                                 float zm, float zp, float prev, float C) {
+    float lap = xm + xp + ym + yp + zm + zp - 6.0f * c;
+    return 2.0f * c - prev + C * lap;
+}
+
+WAVE_FN void wave_update(const WAVE_GLOBAL float* u, WAVE_GLOBAL float* u_prev,
+                         u64 i, u64 sy, u64 sz, float C) {
+    u_prev[i] = wave_update_values(u[i], u[i - 1], u[i + 1], u[i - sy], u[i + sy],
+                                   u[i - sz], u[i + sz], u_prev[i], C);
 }
 
 
