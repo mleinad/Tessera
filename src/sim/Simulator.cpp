@@ -22,7 +22,7 @@ static std::vector<double> SineTable(u32 n) {
     return t;
 }
 
-Simulator::Simulator(u32 n, float courant, KernelVariant variant) {
+Simulator::Simulator(u32 n, float courant, KernelVariant variant) : m_variant(variant) {
     m_params.nx = m_params.ny = m_params.nz = n;
     m_params.sy                             = n + 2;
     m_params.sz                             = (u64)(n + 2) * (n + 2);
@@ -137,16 +137,21 @@ double Simulator::EncodeAndSubmit(u32 steps) {
     engine->Begin();
     engine->SetBytes(&m_params, sizeof(m_params), BIND_PARAMS);
 
-    Kernel* kernel = m_has_obstacles ? m_kernel_obstacles : m_kernel;
+    // Masks always use the naive obstacle kernel - the tiled kernel only runs without a mask
+    const bool tiled  = m_variant == KernelVariant::Tiled && !m_has_obstacles;
+    Kernel*    kernel = m_has_obstacles ? m_kernel_obstacles : m_kernel;
     if (m_has_obstacles) {
         engine->SetBuffer(m_mask.get(), BIND_MASK);
     }
 
-    // iterate sim steps
     for (u32 s = 0; s < steps; ++s) {
         engine->SetBuffer(m_curr.get(), BIND_U_CURR);
         engine->SetBuffer(m_prev.get(), BIND_U_PREV);
-        engine->Dispatch3D(kernel, m_params.nx, m_params.ny, m_params.nz);
+        if (tiled) {
+            engine->DispatchColumns(kernel, m_params.nx, m_params.ny);
+        } else {
+            engine->Dispatch3D(kernel, m_params.nx, m_params.ny, m_params.nz);
+        }
         std::swap(m_curr, m_prev);
     }
     m_steps_done += steps;

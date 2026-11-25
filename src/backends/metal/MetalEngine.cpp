@@ -121,7 +121,8 @@ void MetalEngine::DispatchColumns(Kernel* kernel, size_t x, size_t y) {
     MTL::ComputePipelineState* pso = static_cast<MetalKernel*>(kernel)->Get();
     m_compute_command_encoder->setComputePipelineState(pso);
     m_compute_command_encoder->dispatchThreadgroups(
-        MTL::Size((x + TILE_X - 1) / TILE_X, (y + TILE_Y - 1) / TILE_Y, 1),
+        MTL::Size((x + TILE_X - 1) / TILE_X,
+                  (y + TILE_Y - 1) / TILE_Y, 1),
         MTL::Size(TILE_X, TILE_Y, 1));
 }
 
