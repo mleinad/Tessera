@@ -31,6 +31,7 @@ public:
     void SetBytes(const void *data, size_t bytes, uint32_t index) override;
 
     void Dispatch3D(Kernel *kernel, size_t x, size_t y, size_t z) override;
+    void DispatchColumns(Kernel *kernel, size_t x, size_t y) override;
 
     double Submit() override;
 

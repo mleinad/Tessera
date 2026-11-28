@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <map>
+#include <sys/resource.h> // getrusage (macOS pulls it in indirectly, Linux doesn't)
 constexpr double kBytesPerCell     = 12.0; // per interior cell per step: read u, read+write u_prev
 constexpr double kMaskBytesPerCell = 1.0;  // obstacle runs: 7 mask reads per cell, ~1 B from DRAM after caching
 

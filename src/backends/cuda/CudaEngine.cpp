@@ -139,6 +139,15 @@ void CudaEngine::Dispatch3D(Kernel *kernel, size_t x, size_t y, size_t z)
     CUDA_CHECK(cudaLaunchKernel(static_cast<CudaKernel *>(kernel)->Get(), grid, block, m_args, 0, m_stream));
 }
 
+// Column kernels (wave_step_tiled): one TILE_X x TILE_Y block per x/y tile, each marching the whole z
+// column. The block shape must match the kernel's shared-memory tile, as in MetalEngine::DispatchColumns.
+void CudaEngine::DispatchColumns(Kernel *kernel, size_t x, size_t y)
+{
+    const dim3 block(TILE_X, TILE_Y, 1);
+    const dim3 grid((unsigned)((x + TILE_X - 1) / TILE_X), (unsigned)((y + TILE_Y - 1) / TILE_Y), 1);
+    CUDA_CHECK(cudaLaunchKernel(static_cast<CudaKernel *>(kernel)->Get(), grid, block, m_args, 0, m_stream));
+}
+
 double CudaEngine::Submit()
 {
     CUDA_CHECK(cudaEventRecord(m_stop, m_stream));
@@ -150,26 +159,35 @@ double CudaEngine::Submit()
     return ms / 1e3;
 }
 
-// Host RAM the kernel can hand out without swapping (MemAvailable). Swap is not counted:
-// managed pages in use by the driver are not reliably swappable.
-static size_t AvailableHostBytes()
+struct HostMemory
 {
+    size_t available = 0; // MemAvailable: what the kernel can hand out without swapping anything
+    size_t swap_free = 0; // SwapFree: room to push other programs' memory out to make space
+};
+
+static HostMemory ReadHostMemory()
+{
+    HostMemory m;
     std::FILE *f = std::fopen("/proc/meminfo", "r");
     if (!f)
     {
-        return 0;
+        return m;
     }
-    char line[256];
+    char   line[256];
     size_t kb = 0;
     while (std::fgets(line, sizeof(line), f))
     {
         if (std::sscanf(line, "MemAvailable: %zu kB", &kb) == 1)
         {
-            break;
+            m.available = kb * 1024;
+        }
+        else if (std::sscanf(line, "SwapFree: %zu kB", &kb) == 1)
+        {
+            m.swap_free = kb * 1024;
         }
     }
     std::fclose(f);
-    return kb * 1024;
+    return m;
 }
 
 FitReport CudaEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) const
@@ -179,9 +197,11 @@ FitReport CudaEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) cons
     size_t free_vram = 0, total_vram = 0;
     CUDA_CHECK(cudaMemGetInfo(&free_vram, &total_vram));
 
+    const HostMemory mem = ReadHostMemory();
+
     FitReport r;
     r.fits_fast = total_bytes <= free_vram;
-    r.host_available = AvailableHostBytes();
+    r.host_available = mem.available;
 
     // The simulator initialises and validates on the CPU, so every page is in host RAM at some point:
     // Managed pages are first created on the CPU, Device mode keeps a host mirror of each buffer.
@@ -193,13 +213,25 @@ FitReport CudaEngine::CheckFit(size_t bytes_per_buffer, size_t total_bytes) cons
     {
         r.reason = "device mode needs the whole working set in free VRAM";
     }
-    else if (r.host_needed + kHostHeadroom > r.host_available)
+    else if (r.host_needed + kHostHeadroom <= mem.available)
     {
-        r.reason = "not enough host RAM (the process would be OOM-killed)";
+        r.safe = true; // fits in free RAM
+    }
+    else if (r.host_needed + kHostHeadroom <= mem.available + mem.swap_free)
+    {
+        // Like the Metal version, low free RAM alone is not a reason to skip: Linux can push other
+        // programs' memory to swap to make room. Our own managed pages are driver-owned and stay in RAM,
+        // so this only works if other programs have that much memory to give up; past RAM + swap the
+        // OOM killer is certain, which is the hard limit below.
+        r.safe = true;
+        log("note: needs {:.1f} GB, only {:.1f} GB free; relying on {:.1f} GB of swap. Close other apps "
+            "(and VS Code), expect a slow start, and check the major-fault count for swapping during timing",
+            (r.host_needed + kHostHeadroom) / 1e9, mem.available / 1e9,
+            (r.host_needed + kHostHeadroom - mem.available) / 1e9);
     }
     else
     {
-        r.safe = true;
+        r.reason = "not enough RAM even counting swap (the process would be OOM-killed)";
     }
     return r;
 }
